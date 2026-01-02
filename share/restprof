@@ -25,6 +25,7 @@ _restprof()
         then
             __start_restic
         else
+            # TODO: It might be better to invoke "_completion_loader restic".
             if [[ -r /usr/share/bash-completion/completions/restic ]]
             then
                 . /usr/share/bash-completion/completions/restic

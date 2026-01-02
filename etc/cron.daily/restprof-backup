@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Adjust to match the install location of restprof.
+PATH=/usr/local/bin:$PATH
+
 # Backup all profiles.
 restprof -a backup
 

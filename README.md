@@ -36,8 +36,8 @@ Example installation:
 ```
 cp -a bin/restprof /usr/local/bin
 cp -au etc/restprof /etc
-cp -a etc/bash_completion.d/* /etc/bash_completion.d
 cp -a etc/cron.daily/* /etc/cron.daily
+cp -a share/* /usr/share/bash-completion/completions
 ```
 
 ## Configuration
