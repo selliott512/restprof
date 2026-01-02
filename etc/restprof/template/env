@@ -1,0 +1,20 @@
+# WARNING: This file is simple sourced by restprof and should only contain
+# valid shell syntax for setting environment variables. It should not contain
+# untrusted code or untrusted strings with special characters.
+
+# RESTIC_ variables (restic itself consumes these)
+
+# Path to a file containing the repository password.
+export RESTIC_PASSWORD_FILE="$config/password"
+
+# Restic repository location.
+export RESTIC_REPOSITORY="/mnt/backups/restic/cube"
+
+
+# RESTPROF_ variables (restprof consumes these)
+
+# Allow remounting the repository mountpoint read-write when it is read-only.
+export RESTPROF_REMOUNT_RW=t
+
+# Allow adding --no-lock automatically for read-only commands.
+export RESTPROF_REMOUNT_NO_LOCK=t

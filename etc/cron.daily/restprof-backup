@@ -1,0 +1,7 @@
+#!/bin/bash
+
+# Backup all profiles.
+restprof -a backup
+
+# Keep a week's worth of snapshots for all profiles.
+restprof -a forget --prune -l 7

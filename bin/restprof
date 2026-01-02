@@ -1,0 +1,242 @@
+#!/bin/bash
+
+# Simple restic wrapper that adds profiles.
+# by Steven Elliott with significant help from Codex.
+
+# Globals
+
+bname="${0##*/}"
+
+# Functions
+
+# Restore the mountpoint to read-only if it was remounted.
+cleanup()
+{
+    if [[ $did_remount == t && $was_ro == t ]]
+    then
+        if ! mount -o remount,ro "$mount_point" 2>/dev/null
+        then
+            echo "$bname: WARNING: failed to remount $mount_point read-only on exit" 1>&2
+        fi
+    fi
+}
+
+# Run a restic command using a named profile directory.
+run_profile()
+{
+    local profile="$1"
+    shift
+
+    local config="/etc/$bname/$profile"
+    local env="$config/env"
+
+    if [[ ! -d "$config" ]]
+    then
+        echo "$bname: Configuration directory not found: $config" 1>&2
+        exit 1
+    fi
+
+    if [[ ! -r "$env" ]]
+    then
+        echo "$bname: Environment file $env is not readable." 1>&2
+        exit 1
+    fi
+
+    . "$env"
+
+    set -euo pipefail
+
+    if [[ -z "${RESTIC_REPOSITORY:-}" ]]
+    then
+        echo "$bname: RESTIC_REPOSITORY is not set after sourcing $env" 1>&2
+        exit 1
+    fi
+    if [[ -r "${RESTIC_PASSWORD_FILE:-}" ]]
+    then
+        password_value="$(<"$RESTIC_PASSWORD_FILE")"
+        if [[ "$password_value" == "abcd1234" ]]
+        then
+            echo "$bname: WARNING: RESTIC_PASSWORD_FILE uses the template password. Please change it." 1>&2
+        fi
+    fi
+
+    local args=("$@")
+    local cmd=""
+    local cmd_index=-1
+
+    for i in "${!args[@]}"
+    do
+        if [[ "${args[$i]}" != -* ]]
+        then
+            cmd="${args[$i]}"
+            cmd_index=$i
+            break
+        fi
+    done
+
+    if [[ -z "$cmd" ]]
+    then
+        usage
+        exit 2
+    fi
+
+    local pre_cmd_args=("${args[@]:0:cmd_index}")
+    local post_cmd_args=("${args[@]:cmd_index+1}")
+    local write_cmd=f
+
+    case "$cmd" in
+        backup|forget|init|prune|repair|rebuild-index|copy|migrate|tag|remove|key|unlock)
+            write_cmd=t
+            ;;
+    esac
+
+    remount_rw="${RESTPROF_REMOUNT_RW:-f}"
+    remount_no_lock="${RESTPROF_REMOUNT_NO_LOCK:-t}"
+
+    mount_point=""
+    repo_is_ro=f
+    was_ro=f
+    did_remount=f
+
+    if [[ "$RESTIC_REPOSITORY" == /* ]]
+    then
+        mount_point="$(findmnt -no TARGET -T "$RESTIC_REPOSITORY" 2>/dev/null || true)"
+        if [[ -n "$mount_point" ]]
+        then
+            opts="$(findmnt -no OPTIONS -T "$RESTIC_REPOSITORY")"
+            if [[ ",$opts," == *,ro,* ]]
+            then
+                repo_is_ro=t
+                was_ro=t
+            fi
+        elif [[ $write_cmd == t && $remount_rw == t ]]
+        then
+            echo "$bname: Could not determine mountpoint for RESTIC_REPOSITORY=$RESTIC_REPOSITORY" 1>&2
+            exit 1
+        fi
+    fi
+
+    local extra_args=()
+    if [[ $write_cmd == f && $remount_no_lock == t && $repo_is_ro == t ]]
+    then
+        local has_no_lock=f
+        for opt in "${args[@]}"
+        do
+            if [[ "$opt" == "--no-lock" ]]
+            then
+                has_no_lock=t
+                break
+            fi
+        done
+        if [[ $has_no_lock == f ]]
+        then
+            extra_args+=("--no-lock")
+        fi
+    fi
+
+    if [[ $write_cmd == t && $remount_rw == t && "$RESTIC_REPOSITORY" == /* ]]
+    then
+        if [[ "$mount_point" == "/" ]]
+        then
+            echo "$bname: Refusing to remount / for RESTIC_REPOSITORY=$RESTIC_REPOSITORY" 1>&2
+            exit 1
+        fi
+
+        trap cleanup EXIT
+
+        if [[ $was_ro == t ]]
+        then
+            mount -o remount,rw "$mount_point"
+            did_remount=t
+        fi
+    fi
+
+    if [[ "$cmd" == "backup" ]]
+    then
+        if [[ -r "$config/files" ]]
+        then
+            extra_args+=(--files-from "$config/files")
+        fi
+        if [[ -r "$config/excludes" ]]
+        then
+            extra_args+=(--exclude-file "$config/excludes")
+        fi
+    fi
+
+    restic "${pre_cmd_args[@]}" "$cmd" "${post_cmd_args[@]}" "${extra_args[@]}"
+}
+
+# Print usage information.
+usage()
+{
+    echo "Usage: $bname <profile> <restic command> [args...]" 1>&2
+    echo "       $bname -a <restic command> [args...]" 1>&2
+}
+
+if [[ $# -lt 1 ]]
+then
+    usage
+    exit 2
+fi
+
+all_profiles=f
+if [[ "$1" == "-a" ]]
+then
+    all_profiles=t
+    shift
+fi
+
+if [[ $# -lt 1 ]]
+then
+    usage
+    exit 2
+fi
+
+profiles=()
+if [[ $all_profiles == t ]]
+then
+    if [[ ! -d "/etc/$bname" ]]
+    then
+        echo "$bname: Configuration base directory not found: /etc/$bname" 1>&2
+        exit 1
+    fi
+
+    for dir in "/etc/$bname"/*
+    do
+        if [[ ! -d "$dir" ]]
+        then
+            continue
+        fi
+        profile="${dir##*/}"
+        if [[ "$profile" == "template" ]]
+        then
+            continue
+        fi
+        profiles+=("$profile")
+    done
+
+    if [[ ${#profiles[@]} -eq 0 ]]
+    then
+        echo "$bname: No profiles found under /etc/$bname" 1>&2
+        exit 1
+    fi
+else
+    profiles+=("$1")
+    shift
+fi
+
+status=0
+for profile in "${profiles[@]}"
+do
+    if [[ $all_profiles == t ]]
+    then
+        echo
+        echo "Profile: $profile"
+    fi
+    if ! ( run_profile "$profile" "$@" )
+    then
+        status=1
+    fi
+done
+
+exit $status

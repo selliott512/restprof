@@ -1,0 +1,40 @@
+_restprof()
+{
+    if [[ $COMP_CWORD -eq 1 ]]
+    then
+        local profiles=()
+        if [[ -d /etc/restprof ]]
+        then
+            local profile
+            while IFS= read -r profile
+            do
+                if [[ "$profile" == "template" ]]
+                then
+                    continue
+                fi
+                profiles+=("$profile")
+            done < <(cd /etc/restprof && compgen -d)
+        fi
+        profiles+=("-a")
+        COMPREPLY=( $(compgen -W "${profiles[*]}" -- "${COMP_WORDS[COMP_CWORD]}") )
+        return 0
+    else
+        # Use restic's completion. This should match the function in
+        # "complete -p restic".
+        if [[ $(type -t __start_restic) == function ]]
+        then
+            __start_restic
+        else
+            if [[ -r /usr/share/bash-completion/completions/restic ]]
+            then
+                . /usr/share/bash-completion/completions/restic
+            fi
+            if [[ $(type -t __start_restic) == function ]]
+            then
+                __start_restic
+            fi
+        fi
+    fi
+}
+
+complete -o default -F _restprof restprof

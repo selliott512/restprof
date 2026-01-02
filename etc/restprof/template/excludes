@@ -1,0 +1,3 @@
+*.bak
+*.orig
+/full/path/not/needed
